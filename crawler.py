@@ -1,6 +1,13 @@
+#!/usr/bin/python3
+# encoding: utf-8
+# Crawler
+# By Guanicoe
+# guanicoe@pm.me
+# https://github.com/guanicoe/crawler
+
 import time
 import zmq
-from multiprocessing import Process, Event
+from multiprocessing import Process
 import re
 import requests
 from urllib.parse import urlsplit
@@ -21,10 +28,9 @@ import os
 import lxml
 import sys
 import signal
-signal.signal(signal.SIGINT, signal.SIG_IGN)
 import shutil
 import concurrent.futures as futures
-import msvcrt
+
 
 """ GLOBAL """
 HEADER = {
@@ -33,11 +39,31 @@ RGX = r"""(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?
 VERSION = "0.2"
 EXCLUDEEXT = ['jpeg', 'jpg', 'gif', 'pdf', 'png', 'ppsx', 'f4v', 'mp3', 'mp4', 'exe', 'dmg', 'zip', 'avi', 'wmv', 'pptx', "exar1", "edx", "epub"]
 EXCLUDEURL = ['youtube', "facebook", "twitter", "youtu", "69.175.83.8", "google", 'flickr', 'commailto', '.com#', "pinterest", "linkedin", "zencart", "wufoo", "youcanbook", 'instagram']
+logLvel = {0: logging.CRITICAL,
+               1: logging.ERROR,
+               2: logging.WARNING,
+               3: logging.INFO,
+               4: logging.DEBUG}
 """ GLOBAL """
 
 
 class GeneratParameters():
     def __init__(self, args):
+    
+        #Setting log
+        """if args.verbose == 4:
+            tb = 1000
+        else:
+            tb = 0
+        sys.set_coroutine_origin_tracking_depth(tb)"""
+        if args.verbose > 4:
+            self.verbose = 4
+        elif args.verbose < 0:
+            self.verbose = 0
+        else:
+            self.verbose = args.verbose
+        #logging.basicConfig(level=logLvel[verbose])
+    
         # Format URL
         self.urlsplit = urlsplit(args.url)
         self.url = f"{self.urlsplit.scheme}://{self.urlsplit.netloc}"
@@ -113,7 +139,7 @@ def printParam(parameters):
     Output: {parameters.outputDir}
     Header: {parameters.header}
 
-    CMDs: [q]: quite | [any other keys]: print result
+    
 ###########################################################################
     """
 
@@ -171,11 +197,6 @@ def creatSoup(work,
     return output
 
 
-def restart_line():
-    sys.stdout.write('\r')
-    sys.stdout.flush()
-
-
 def cleanurl(url):
     parts = urlsplit(url)
     base_url = "{0.scheme}://{0.netloc}".format(parts)
@@ -186,7 +207,7 @@ def cleanurl(url):
     return parts, base_url, path
 
 
-def saveResult(dict, dir, printRes=False, save=True):
+def saveResult(dict, dir, printRes=False, save=True, getUniques=True):
     df = pd.DataFrame(dict, columns=["email", "url"])
     df_unique = df['email'].copy()
     df_unique.drop_duplicates(inplace=True)
@@ -204,6 +225,9 @@ def saveResult(dict, dir, printRes=False, save=True):
             logging.critical(df_unique)
         else:
             logging.critical("[+] No emails found...\n")
+    
+    if getUniques:
+        return df_unique
 
 
 @timeout(30)
@@ -248,6 +272,17 @@ def readhtml(response, work, timeo_data=[[], []]):
                     links.append(link)
     return [links, list(new_emails)]
 
+
+def signal_handler(sig, frame):
+    context = zmq.Context()
+    # Connect to MASTER
+    masterPUSH = context.socket(zmq.PUSH)
+    masterPUSH.connect("tcp://127.0.0.1:5551")
+
+    masterPUSH.send_json(json.dumps({'name': 'key', 'state': "q"}))   
+    #logging.critical("[!] Keyinterrupt ctrl+c heard. Stopping")
+    context.destroy(linger=0)
+        
 
 def MASTER(workers):
     context = zmq.Context()
@@ -306,22 +341,18 @@ def MASTER(workers):
                 socketPUB.send_string("producer kill")
                 socketPUB.send_string("worker kill")
                 break
+            elif recv['name'] == 'key':
+                char = recv['state'] 
+                if char == 'q':  # 
+                    socketPUB.send_string("producer kill")
+                    socketPUB.send_string("worker kill")
+                    socketPUB.send_string("sink kill")
+                else: # NOT PROGRAMMED. NEED TO FIND A WAY FOR LINUX TO LISTEN TO KEY
+                    logging.info("\n [i] MASTER - Fetching results...\n")
+                    socketPUB.send_string("producer print")
             else:
                 logging.debug(f"""[?] MASTER - poller triggered
                                   but not understood: {recv}""")
-        if msvcrt.kbhit():
-            keypress = msvcrt.getwch()
-
-            if keypress == "q":
-                socketPUB.send_string("producer kill")
-                socketPUB.send_string("worker kill")
-                socketPUB.send_string("sink kill")
-            else:
-                logging.info("\n [i] MASTER - Fetching results...\n")
-                socketPUB.send_string("producer print")
-
-
-
 
     logging.debug('\n[i] MASTER - closing service')
     context.destroy(linger=0)
@@ -451,6 +482,7 @@ def PRODUCER(data):
     unscraped = deque([data.url])
     scraped = set()
     emails = set()
+    numberEmails = 0
     emaildict = []
     oldsoup = set()
     queue = 0
@@ -487,9 +519,12 @@ def PRODUCER(data):
                         if link not in list(scraped) + list(unscraped):
                             unscraped.append(link)
 
-                saveResult(emaildict, data.outputDir)
+                emails = saveResult(emaildict, data.outputDir, getUniques=True)
+                if numberEmails < len(emails):
+                    saveResult(emaildict, data.outputDir, printRes=True, save=False)
+                    numberEmails = len(emails)
                 sys.stdout.write(f"\r" + " " * 80)
-                sys.stdout.write(f"""\r[i] PRODUCER (SCRAPED: {count}, EMAILS: {len(emails)}) - {sink['initUrl'][:60]}...""")
+                sys.stdout.write(f"""\r[i] PRODUCER (SCRAPED: {count}, EMAILS: {numberEmails}) - {sink['initUrl'][:60]}...""")
                 #  , end='',  flush=True)
 
             elif len(work_list):
@@ -507,7 +542,8 @@ def PRODUCER(data):
             elif socks.get(masterSUB) == zmq.POLLIN:
                 recv = masterSUB.recv_string()
                 if "kill" in recv:
-                    logging.critical('[!] CRITICAL: PRODUCER was killed')
+                    logging.critical('[!] PRODUCER was killed')
+                    saveResult(emaildict, data.outputDir, printRes=True, save=True)
                     break
                 elif "print" in recv:
                     saveResult(emaildict, data.outputDir, printRes=True, save=False)
@@ -563,35 +599,28 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     # print(args)
-    logLvel = {0: logging.CRITICAL,
-               1: logging.ERROR,
-               2: logging.WARNING,
-               3: logging.INFO,
-               4: logging.DEBUG}
+    
 
-    if args.verbose == 4:
-        tb = 1000
-    else:
-        tb = 0
-    sys.set_coroutine_origin_tracking_depth(tb)
-    if args.verbose > 4:
-        verbose = 4
-    elif args.verbose < 0:
-        verbose = 0
-    else:
-        verbose = args.verbose
-    #logging.basicConfig(level=logLvel[verbose])
+    
 
 
-    logger.setLevel(logLvel[verbose])
+    
 
     data = GeneratParameters(args)
+    logger.setLevel(logLvel[data.verbose])
 
     printParam(data)
     # Start WORKERS
     processes = []
-    event = Event()
     start = time.time()
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    """p = Process(target=KEYPRESS)
+    p.daemon = True
+    p.start()
+    processes.append(p)"""
+    
     p = Process(target=MASTER, args=(data.workers,),
                                 name="MASTER")
     logging.debug(f'[i] Starting Master: {p.name}')
@@ -618,3 +647,5 @@ if __name__ == '__main__':
         p.terminate()
 
     logging.critical(f'[Done in {int(round(time.time() - start, 0))}s]')
+
+   
