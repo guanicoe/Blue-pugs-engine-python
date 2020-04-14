@@ -38,7 +38,7 @@ HEADER = {
 RGX = r"""(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])"""
 VERSION = "0.2"
 EXCLUDEEXT = ['jpeg', 'jpg', 'gif', 'pdf', 'png', 'ppsx', 'f4v', 'mp3', 'mp4', 'exe', 'dmg', 'zip', 'avi', 'wmv', 'pptx', "exar1", "edx", "epub"]
-EXCLUDEURL = ['youtube', "facebook", "twitter", "youtu", "69.175.83.8", "google", 'flickr', 'commailto', '.com#', "pinterest", "linkedin", "zencart", "wufoo", "youcanbook", 'instagram']
+EXCLUDEURL = ["whatsapp", 'youtube', "facebook", "twitter", "youtu", "69.175.83.8", "google", 'flickr', 'commailto', '.com#', "pinterest", "linkedin", "zencart", "wufoo", "youcanbook", 'instagram']
 logLvel = {0: logging.CRITICAL,
                1: logging.ERROR,
                2: logging.WARNING,
@@ -49,7 +49,7 @@ logLvel = {0: logging.CRITICAL,
 
 class GeneratParameters():
     def __init__(self, args):
-    
+
         #Setting log
         """if args.verbose == 4:
             tb = 1000
@@ -63,7 +63,7 @@ class GeneratParameters():
         else:
             self.verbose = args.verbose
         #logging.basicConfig(level=logLvel[verbose])
-    
+
         # Format URL
         self.urlsplit = urlsplit(args.url)
         self.url = f"{self.urlsplit.scheme}://{self.urlsplit.netloc}"
@@ -139,7 +139,7 @@ def printParam(parameters):
     Output: {parameters.outputDir}
     Header: {parameters.header}
 
-    
+
 ###########################################################################
     """
 
@@ -225,7 +225,7 @@ def saveResult(dict, dir, printRes=False, save=True, getUniques=True):
             logging.critical(df_unique)
         else:
             logging.critical("[+] No emails found...\n")
-    
+
     if getUniques:
         return df_unique
 
@@ -279,10 +279,10 @@ def signal_handler(sig, frame):
     masterPUSH = context.socket(zmq.PUSH)
     masterPUSH.connect("tcp://127.0.0.1:5551")
 
-    masterPUSH.send_json(json.dumps({'name': 'key', 'state': "q"}))   
+    masterPUSH.send_json(json.dumps({'name': 'key', 'state': "q"}))
     #logging.critical("[!] Keyinterrupt ctrl+c heard. Stopping")
     context.destroy(linger=0)
-        
+
 
 def MASTER(workers):
     context = zmq.Context()
@@ -342,8 +342,8 @@ def MASTER(workers):
                 socketPUB.send_string("worker kill")
                 break
             elif recv['name'] == 'key':
-                char = recv['state'] 
-                if char == 'q':  # 
+                char = recv['state']
+                if char == 'q':  #
                     socketPUB.send_string("producer kill")
                     socketPUB.send_string("worker kill")
                     socketPUB.send_string("sink kill")
@@ -599,12 +599,12 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     # print(args)
-    
-
-    
 
 
-    
+
+
+
+
 
     data = GeneratParameters(args)
     logger.setLevel(logLvel[data.verbose])
@@ -613,14 +613,14 @@ if __name__ == '__main__':
     # Start WORKERS
     processes = []
     start = time.time()
-    
+
     signal.signal(signal.SIGINT, signal_handler)
-    
+
     """p = Process(target=KEYPRESS)
     p.daemon = True
     p.start()
     processes.append(p)"""
-    
+
     p = Process(target=MASTER, args=(data.workers,),
                                 name="MASTER")
     logging.debug(f'[i] Starting Master: {p.name}')
@@ -647,5 +647,3 @@ if __name__ == '__main__':
         p.terminate()
 
     logging.critical(f'[Done in {int(round(time.time() - start, 0))}s]')
-
-   
