@@ -229,7 +229,7 @@ class Workers(SetupZMQ):
                           "response": None, "oldsoup": oldsoup, "error": None}
         except Exception as e:
             output = {"state": False, "content_type": None,
-                      "response": None, "oldsoup": oldsoup, "error": e}
+                      "response": None, "oldsoup": oldsoup, "error": str(e)}
             logger.exception(f"Exception hit: {e}")
         return output
 
