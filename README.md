@@ -16,6 +16,8 @@ This small utility script was made to crawl websites for email addresses. It use
 
 It is quite easy to use but is in early development stage. I don't know if it will be maintained. This will depend on whether it is a useful script or not.  The code may be considered as ugly, but it works (at least for me). So if you can make it better, go ahead.
 
+This script uses celery's billiard instead of the normal multiprocessing from python. It is there compatible with celery and can easily be integrated in a task by calling main() directly.
+
 ## Installation
 
 #### Prerequisite
@@ -27,6 +29,7 @@ beautifulsoup4
 lxml
 pandas
 pyzmq
+celery
 ```
 
 You just need to download the repository, and install the requirements.
