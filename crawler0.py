@@ -7,6 +7,7 @@
 
 import time
 import zmq
+# from multiprocessing import Process
 from billiard import Process, Value
 import re
 import requests
@@ -18,151 +19,36 @@ import numpy as np
 import json
 from validate_email import validate_email
 import hashlib
+import logging
+logger = logging.getLogger()
+handler = logging.StreamHandler()
+formatter = logging.Formatter('\n%(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 import argparse
 import os
 import lxml
 import sys
 import signal
 import shutil
+import concurrent.futures as futures
 import yaml
-from utils import timeout, cleanurl, saveResult
-import config
 
-import logging
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-
-formatter = logging.Formatter('%(levelname)s:%(name)s:%(message)s')
-
-file_handler = logging.FileHandler('logs/general.log')
-file_handler.setLevel(logging.WARNING)
-file_handler.setFormatter(formatter)
-
-
-stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.DEBUG)
-stream_handler.setFormatter(formatter)
-
-logger.addHandler(file_handler)
-logger.addHandler(stream_handler)
-
-
-class ZMQObjects():
-    def setupZmq(self):
-        self.context = zmq.Context()
-
-class Workers(ZMQObjects):
-    def __init__(self, data):
-        self.context = zmq.Context()
-        port = data['port']
-
-        masterPUSH = .selfcontext.socket(zmq.PUSH)
-        masterPUSH.connect(f"tcp://127.0.0.1:{port}")#5551")
-
-        masterSUB = context.socket(zmq.SUB)
-        masterSUB.connect(f"tcp://127.0.0.1:{port+1}")#5553")
-        masterSUB.setsockopt_string(zmq.SUBSCRIBE, "worker")
-        # recieve work
-        work_receiver = context.socket(zmq.PULL)
-        work_receiver.connect(f"tcp://127.0.0.1:{port+2}")#5557")
-        # send work
-        consumer_sender = context.socket(zmq.PUSH)
-        consumer_sender.connect(f"tcp://127.0.0.1:{port+4}")#:5558")
-
-        # Creat pollers
-        poller = zmq.Poller()
-        poller.register(work_receiver, zmq.POLLIN)
-        poller.register(masterSUB, zmq.POLLIN)
-
-        sendAliveSignal(masterPUSH, "start")
-
-    def sendToMaster(self, socket, state):
-        socket.send_json(json.dumps({"name": "worker", "state": state}))
-
-
-    # Define variables
-    data = {"state": False}
-
-    while True:
-
-        socks = dict(poller.poll())
-        if socks.get(work_receiver) == zmq.POLLIN:
-            work = json.loads(work_receiver.recv_json())
-            extension = work['url'].split('.')[-1].lower()
-
-            output = {"initUrl": work['url'], "emaildict": None,
-                      "linksSet": None, "oldsoup": None,
-                      "empty": True}
-
-            if extension not in EXCLUDEEXT:
-                data = creatSoup(work, HEADER)
+def timeout(timelimit):
+    def decorator(func):
+        def decorated(*args, **kwargs):
+            with futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(func, *args, **kwargs)
                 try:
-                    if data['state']:
-                        linksSet, emailsSet = readhtml(data['response'], work, EXCLUDEURL, RGX)
-                        emaildict = [{"email": email, "url": work['url']} for email in emailsSet]
-                        output = {"initUrl": work['url'], "emaildict": emaildict,
-                                  "linksSet": linksSet, "oldsoup": data['oldsoup'],
-                                  "empty": False}
-                except Exception as e:
-                    logging.debug(f'[i] WORKER - exception hit {e}')
-
-            consumer_sender.send_json(json.dumps(output))
-
-        elif socks.get(masterSUB) == zmq.POLLIN:
-            recv = masterSUB.recv_string()
-            if recv.split(' ')[1] == 'kill':
-                logging.debug('[i] WORKER - closing service')
-                break
-
-    context.destroy(linger=0)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                    result = future.result(timelimit)
+                except futures.TimeoutError:
+                    logging.warning(f'[!] Timeout called on {func.__qualname__}')
+                    result = kwargs.get('timeo_data')
+                executor._threads.clear()
+                futures.thread._threads_queues.clear()
+                return result
+        return decorated
+    return decorator
 
 @timeout(30)
 def creatSoup(work, HEADER,
@@ -195,8 +81,31 @@ def creatSoup(work, HEADER,
     return output
 
 
+def cleanurl(url):
+    parts = urlsplit(url)
+    base_url = "{0.scheme}://{0.netloc}".format(parts)
+    if '/' in parts.path:
+        path = url[:url.rfind('/')+1]
+    else:
+        path = url
+    return parts, base_url, path
 
 
+def saveResult(dict, dir, printRes=False, save=True, getUniques=True):
+    df = pd.DataFrame(dict, columns=["email", "url"])
+    df_unique = df['email'].copy()
+    df_unique.drop_duplicates(inplace=True)
+    df_unique.reset_index(drop=True)
+    try:
+        df.to_csv(os.path.join(dir, "email_list.csv"), index=False)
+        if save:
+            df_unique.to_csv(os.path.join(dir, "emails.csv"), index=False)
+    except Exception as e:
+        logging.debug(f'[!] PROCESS - Could note save dfs: {e}')
+    logging.debug(f'[+] Emails cached: {len(df_unique)}')
+
+    if getUniques:
+        return df_unique
 
 
 @timeout(30)
@@ -261,13 +170,16 @@ def MASTER(data):
     port = data.port
     workers = data.workers
     logging.debug('[i] MASTER - connecting to results_receiver')
-    results_receiver = context.socket(zmq.PULL).bind(f"tcp://127.0.0.1:{port}")#5551")
+    results_receiver = context.socket(zmq.PULL)
+    results_receiver.bind(f"tcp://127.0.0.1:{port}")#5551")
 
     logging.debug('[i] MASTER - connecting to socketPUB')
-    socketPUB = context.socket(zmq.PUB).bind(f"tcp://127.0.0.1:{port+1}")#5553")
+    socketPUB = context.socket(zmq.PUB)
+    socketPUB.bind(f"tcp://127.0.0.1:{port+1}")#5553")
 
     logging.debug('[i] MASTER - setting poller')
-    poller = zmq.Poller().register(results_receiver, zmq.POLLIN)
+    poller = zmq.Poller()
+    poller.register(results_receiver, zmq.POLLIN)
 
     logging.warning("[+] MASTER is online")
     logging.debug(f"[i] MASTER - Listening for {workers} workers, producer and sink")
@@ -580,9 +492,17 @@ class setParam():
             os.makedirs(self.outputDir)
 
 
+def getConfig(filename="config.yaml"):
+    cwd = os.getcwd()
+    configFile = os.path.join(cwd, "engine", "config.yaml")
+    with open(configFile, 'r') as stream:
+        try:
+            config = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            logging.debug(f'[i] getConfig - error opening config file {exc}')
+    return config
 
-
-def engine(param):
+def crawl(param):
 
     config = getConfig()
     data = setParam(param=param, config= config)
@@ -622,7 +542,6 @@ if __name__ == '__main__':
                 "reference": "7bf8b99a-7112-45ce-aecb-e73ebe18af13",
                 "workers": 20,
                 "limit": 5000,
-                "port": 10,
             }
-    emails = engine(param)
+    emails = crawl(param)
     print(emails)
