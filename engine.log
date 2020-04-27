@@ -1,4 +1,0 @@
-2020-04-27 21:20:20,751 - CRITICAL:engine:__main__:gracefullyKill --- Killing process: producer --- [132]
-2020-04-27 21:20:20,751 - CRITICAL:engine:__main__:mainLoop --- [i] MASTER - received quit message from producer --- [445]
-2020-04-27 21:20:20,752 - CRITICAL:engine:__main__:gracefullyKill --- Killing process: master --- [132]
-2020-04-27 21:20:20,752 - CRITICAL:engine:__main__:gracefullyKill --- Process: producer killed! --- [139]

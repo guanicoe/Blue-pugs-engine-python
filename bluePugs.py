@@ -39,7 +39,7 @@ logger.setLevel(logging.DEBUG)
 
 formatter = logging.Formatter('%(asctime)s - %(levelname)s:%(module)s:%(name)s:%(funcName)s --- %(message)s --- [%(lineno)d]')
 
-file_handler = logging.FileHandler('engine.log')
+file_handler = logging.FileHandler('bluePugs.log')
 file_handler.setLevel(logging.WARNING)
 file_handler.setFormatter(formatter)
 
