@@ -588,7 +588,10 @@ class setParam():
         self.urlsplit = urlsplit(param['url'])
         self.url = f"{self.urlsplit.scheme}://{self.urlsplit.netloc}"
         self.domains = param['domain']
-        self.folder = param['reference'].replace("-", "_")
+        if __name__ == '__main__':
+            self.folder = self.domains[0]
+        else:
+            self.folder = param['reference'].replace("-", "_")
 
         # Set constats
         self.workers = param['workers']
@@ -683,16 +686,17 @@ def printParam(parameters):
 if __name__ == '__main__':
     welcome()
 
-    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser = argparse.ArgumentParser(description="""
+    This small utility script was made to crawl websites for email addresses.
+    It uses multiprocessing threads to get multiple workers to scrape the web pages,
+    extract emails and links, and dumps them in a *.csv file.
+    """)
     parser.add_argument('-u', '--url', type=str,
                         required=True, help='Url to crawl')
     parser.add_argument('-d', '--domain', nargs="+", default=False,
-                        help="""Domain name to keep in scope (ex: -d domain1,
+                        required=True, help="""Domain name to keep in scope (ex: -d domain1,
                                 domain2). The first domain will be used as name
-                                for output. If not specified, the script will
-                                go outside the webite (will take a long time
-                                as it will basically scan the internet).
-                                The output name will be guessed from url."""
+                                for output. """
                         )
     parser.add_argument('-w', '--workers', type=int, default=10,
                         help='Number of workers (default: 10)')
