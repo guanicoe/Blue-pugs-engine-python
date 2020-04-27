@@ -1,9 +1,9 @@
 #!/usr/bin/python3
 # encoding: utf-8
-# Crawler
+# BluePugs Engine
 # By Guanicoe
 # guanicoe@pm.me
-# https://github.com/guanicoe/crawler
+# https://github.com/guanicoe/Blue-pugs-engine
 from collections import deque
 from urllib.parse import urlsplit
 from billiard import Process, Value

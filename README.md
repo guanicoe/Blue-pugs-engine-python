@@ -35,7 +35,7 @@ celery
 You just need to download the repository, and install the requirements.
 
 ```sh
-git clone hhttps://github.com/guanicoe/Blue-pugs-engine
+git clone https://github.com/guanicoe/Blue-pugs-engine
 python3 -m pip install -r requirements.txt
 chmod +x bluePugs.py
 ```
