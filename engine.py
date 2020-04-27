@@ -4,12 +4,24 @@
 # By Guanicoe
 # guanicoe@pm.me
 # https://github.com/guanicoe/crawler
+from collections import deque
+from urllib.parse import urlsplit
+from billiard import Process, Value
+from bs4 import BeautifulSoup
+import concurrent.futures as futures
+import pandas as pd
+import requests
+import hashlib
+import argparse
+import lxml
 import zmq
 import json
 import time
+import os
+import re
+import uuid
 #Custom modules
 import config
-
 import logging
 
 # DEBUG: Detailed information, typically of interest only when diagnosing problems.
@@ -25,15 +37,15 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-formatter = logging.Formatter('%(levelname)s:%(module)s:%(name)s:%(funcName)s --- %(message)s --- [%(lineno)d]')
+formatter = logging.Formatter('%(asctime)s - %(levelname)s:%(module)s:%(name)s:%(funcName)s --- %(message)s --- [%(lineno)d]')
 
-file_handler = logging.FileHandler('logs/general.log')
+file_handler = logging.FileHandler('engine.log')
 file_handler.setLevel(logging.WARNING)
 file_handler.setFormatter(formatter)
 
 
 stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.DEBUG)
+stream_handler.setLevel(logging.INFO)
 stream_handler.setFormatter(formatter)
 
 logger.addHandler(file_handler)
@@ -58,15 +70,15 @@ class SetupZMQ():
 
     def zmqProducer(self):
 
-        self.zmq_socket = context.socket(zmq.PUSH)
-        self.zmq_socket.bind(f"tcp://127.0.0.1:{port+2}")#5557")
+        self.zmq_socket = self.context.socket(zmq.PUSH)
+        self.zmq_socket.bind(f"tcp://127.0.0.1:{self.port+2}")#5557")
         logger.debug(f"Successful connection to zmq_socket on port {self.port+2} - {self.zmq_socket}")
 
-        self.get_sink = context.socket(zmq.PULL)
-        self.get_sink.connect(f"tcp://127.0.0.1:{port+3}")#5559")
+        self.get_sink = self.context.socket(zmq.PULL)
+        self.get_sink.connect(f"tcp://127.0.0.1:{self.port+3}")#5559")
         logger.debug(f"Successful connection to get_sink on port {self.port+3} - {self.get_sink}")
 
-        return [self.zmq_socket, self.get_sink ]
+        return [self.zmq_socket, self.get_sink]
 
     def zmqWorker(self):
         # recieve work
@@ -116,7 +128,7 @@ class SetupZMQ():
 
     def gracefullyKill(self, tellMaster = True):
         if tellMaster:
-            self.sendToMaster("stop")
+            self.sendToMaster("quit")
         logger.critical(f"Killing process: {self.who}")
         # self.masterPUSH.close()
         # self.masterSUB.close()
@@ -149,7 +161,7 @@ class Workers(SetupZMQ):
 
         self.fails = 0
         self.who = "worker"
-        self.port = data['port']
+        self.port = data.port
 
         try:
             self.connectZMQ()
@@ -165,9 +177,110 @@ class Workers(SetupZMQ):
             self.gracefullyKill()
 
 
+    def timeout(timelimit):
+        def decorator(func):
+            def decorated(*args, **kwargs):
+                with futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(func, *args, **kwargs)
+                    try:
+                        result = future.result(timelimit)
+                    except futures.TimeoutError:
+                        logger.error(f'Timeout called on {func.__qualname__}')
+                        result = kwargs.get('timeout_data')
+                    executor._threads.clear()
+                    futures.thread._threads_queues.clear()
+                    return result
+            return decorated
+        return decorator
+
+    def cleanurl(self, url):
+        parts = urlsplit(url)
+        base_url = "{0.scheme}://{0.netloc}".format(parts)
+        if '/' in parts.path:
+            path = url[:url.rfind('/')+1]
+        else:
+            path = url
+        return parts, base_url, path
+
+    @timeout(30)
+    def creatSoup(self, work, timeout_data={ "state": False,
+                                    "content_type": None,
+                                    "response": None,
+                                    "oldsoup": "",
+                                    "error": "Timeout"}):
+        typelist = ['text/html']
+        url, oldsoup = work['url'], work['oldsoup']
+
+        try:
+            response = requests.get(url, headers=config.HEADER)
+            soup = BeautifulSoup(response.text, 'lxml')
+            hash = hashlib.md5(str(soup).encode()).hexdigest()
+            content_type = response.headers.get('content-type')
+            if hash in oldsoup:
+                return {"state": False, "content_type": content_type,
+                        "response": None, "oldsoup": oldsoup, "error": None}
+            else:
+                oldsoup.append(hash)
+            if any([tps in content_type for tps in typelist]):
+                output = {"state": True, "content_type": content_type,
+                          "response": response, "oldsoup": oldsoup, "error": None}
+            else:
+                output = {"state": False, "content_type": content_type,
+                          "response": None, "oldsoup": oldsoup, "error": None}
+        except Exception as e:
+            output = {"state": False, "content_type": None,
+                      "response": None, "oldsoup": oldsoup, "error": e}
+            logger.exception(f"Exception hit: {e}")
+        return output
+
+
+    @timeout(30)
+    def readhtml(self, response, work, timeout_data=[[], []]):
+
+        excludeCHAR = ["/", "+", "*", "`", "%", "=", "#", "{", "}", "(", ")", "[",
+                       "]", "'", "domain.com", 'email.com']
+        new_emails = set(re.findall(config.RGX, response.text, re.I))
+        falsepos = set()
+
+        for email in new_emails:
+            falsepos.update([email for e in excludeCHAR if e in email])
+        new_emails -= falsepos
+
+        soup = BeautifulSoup(response.text, 'lxml')
+
+        if not work['domaines']:
+            include = []
+        else:
+            include = work['domaines']
+
+        parts, base_url, path = self.cleanurl(work['url'])
+        links = []
+        for anchor in soup.find_all("a"):
+            if "href" in anchor.attrs:
+                link = anchor.attrs["href"]
+            else:
+                link = ''
+            if link.startswith('//'):
+                link = link[2:]
+            if link.startswith('www.'):
+                link = "http://"+link
+            if link.startswith('/'):
+                link = base_url + link
+
+            elif not link.startswith('http'):
+                link = path + link
+
+            if not any(ext in link for ext in config.BLACKLIST['URLS']):
+                if all(inc in link for inc in include):
+                    if link not in work['unscraped'] + work['scraped']:
+                        links.append(link)
+
+        return [links, list(new_emails)]
+
     def mainLoop(self):
         while self.health:
-            socks = dict(self.poller.poll(20e3))
+
+            socks = dict(self.poller.poll(config.TIMEOUT_CONSTANT/2))
             if socks.get(self.work_receiver) == zmq.POLLIN:
                 work = json.loads(self.work_receiver.recv_json())
                 output = {
@@ -181,9 +294,9 @@ class Workers(SetupZMQ):
                 try:
                     extension = work['url'].split('.')[-1].lower()
                     if extension not in config.BLACKLIST['EXTENSIONS']:
-                        data = creatSoup(work)
+                        data = self.creatSoup(work)
                         if data['state']:
-                            linksSet, emailsSet = readhtml(data['response'], work, config.BLACKLIST['URLS'],  config.RGX)
+                            linksSet, emailsSet = self.readhtml(data['response'], work)
                             output = {
                                         "initUrl": work['url'],
                                         "emaildict": [{"email": email, "url": work['url']} for email in emailsSet],
@@ -192,11 +305,12 @@ class Workers(SetupZMQ):
                                         "empty": False,
                                         "error": False,
                                     }
+                        else:
+                            output['error'] = data['error']
                 except Exception as e:
                      output['error'] = True
-                     logger.warning(f'Exception hit when undertaking job {e}. Work: {work}')
-
-                consumer_sender.send_json(json.dumps(output))
+                     logger.exception(f'Exception hit when undertaking job {e}. Work: {work}')
+                self.consumer_sender.send_json(json.dumps(output))
 
             elif socks.get(self.masterSUB) == zmq.POLLIN:
                 self.interpretMaster()
@@ -234,7 +348,7 @@ class Sink(SetupZMQ):
 
         self.fails = 0
         self.who = "sink"
-        self.port = data['port']
+        self.port = data.port
 
         try:
             self.connectZMQ()
@@ -251,7 +365,7 @@ class Sink(SetupZMQ):
 
     def mainLoop(self):
         while self.health:
-            socks = dict(self.poller.poll(30e3))
+            socks = dict(self.poller.poll(config.TIMEOUT_CONSTANT))
             if socks.get(self.results_receiver) == zmq.POLLIN:
                 recv = json.loads(self.results_receiver.recv_json())
                 self.count += 1
@@ -272,9 +386,9 @@ class Master(SetupZMQ):
 
         self.fails = 0
         self.who = "master"
-        self.port = data['port']
+        self.port = data.port
 
-        self.workers = data['workers']
+        self.workers = data.workers
 
 
         try:
@@ -309,27 +423,25 @@ class Master(SetupZMQ):
                     recv = json.loads(self.masterPULL.recv_json())
                     if recv == {'name': 'worker', 'state': 'start'}:
                         self.count += 1
-                        logger.debug(f"{self.count}/{self.workers} worker connected")
+                        logger.info(f"{self.count}/{self.workers} worker connected")
                     elif recv == {'name': 'sink', 'state': 'start'}:
-                        logger.debug(f"Sink connected")
+                        logger.info(f"Sink connected")
                         self.sink = True
                     elif recv == {'name': 'producer', 'state': 'start'}:
-                        logger.debug(f"Producer connected")
+                        logger.info(f"Producer connected")
                         self.producer = True
             elif self.count == self.workers and self.sink and self.producer:
-                logger.critical(f"[+] MASTER - Let's go!")
+                logger.info(f"[+] MASTER - Let's go!")
                 break
 
 
     def mainLoop(self):
-
         self.socketPUB.send_string("producer go")
-
         while self.health:
             socks = dict(self.poller.poll(1000))
             if socks.get(self.masterPULL) == zmq.POLLIN:
                 recv = json.loads(self.masterPULL.recv_json())
-                if recv == {'name': 'producer', 'state': 'done'}:
+                if recv == {'name': 'producer', 'state': 'quit'}:
                     logger.critical(f"[i] MASTER - received quit message from {recv['name']}")
                     self.pubKillSockets(['worker', 'sink'])
                     break
@@ -352,36 +464,46 @@ class Master(SetupZMQ):
 class Producer(SetupZMQ):
     def __init__(self, data):
         self.fails = 0
-        self.who = "poducer"
+        self.who = "producer"
         self.data = data
-        self.port = data['port']
+        self.port = data.port
         self.work_list = deque([])
         self.emaildict = []
         self.continueLoop = True
 
         try:
             self.connectZMQ()
-            self.generatPoller(self.zmqProducer())
+            self.generatPoller(self.zmqProducer()+[self.masterPUSH])
+            self.startLoop()
         except Exception as e:
             logger.exception(f"Failed to initialise ZMQ: {e}.")
             self.health = False
 
-        logging.debug('[i] PRODUCER - sending ready message to MASTER')
-        self.masterPUSH.send_json(json.dumps({"name": "producer", "state": "start"}))
-
-        logging.debug('[i] PRODUCER - waiting green light from MASTER')
-        self.masterSUB.recv_string()
-
         if self.health:
-            self.startLoop()
+
             self.mainLoop()
         else:
             self.gracefullyKill()
 
-        return self.emaildict
+
+
+    def startLoop(self):
+        logger.debug('[i] PRODUCER - sending ready message to MASTER')
+        self.sendToMaster("start")
+        logger.debug('[i] PRODUCER - waiting green light from MASTER')
+        self.masterSUB.recv_string()
+
+        # while self.health:
+        #     socks = dict(self.poller.poll(config.TIMEOUT_CONSTANT))
+        #     if socks.get(self.masterPUSH) == zmq.POLLIN:
+        #         logger.debug('[i] PRODUCER - waiting green light from MASTER')
+        #         self.masterSUB.recv_string()
+        #     else:
+        #         self.countFails()
+
 
     def mainLoop(self):
-        logging.info('[i] PRODUCER - starting main loop')
+        logger.info('[i] PRODUCER - starting main loop')
         unscraped = deque([self.data.url])
         scraped = set()
         oldsoup = set()
@@ -390,9 +512,9 @@ class Producer(SetupZMQ):
 
         while self.health and self.continueLoop:
             try:
-                self.creatWorkList(self, unscraped, scraped, oldsoup)
+                self.creatWorkList(unscraped, scraped, oldsoup)
 
-                socks = dict(poller.poll(100))
+                socks = dict(self.poller.poll(100))
                 if socks.get(self.get_sink) == zmq.POLLIN:
                     logger.debug("Receiving data from sink")
                     sink = json.loads(self.get_sink.recv_json())
@@ -404,22 +526,22 @@ class Producer(SetupZMQ):
                         for link in sink['linksSet']:
                             if link not in list(scraped) + list(unscraped):
                                 unscraped.append(link)
-                                logger.debug(f"Updating unscraped set. New length {len(unscraped)}")
 
-                    saveResult(self.emaildict, data.outputDir)
+                    logger.info(f"Current scraped {len(scraped)} | Emails found: {len(self.emaildict)}")
+                    self.saveResult(self.emaildict, self.data.outputDir)
 
                 elif len(self.work_list):
-                    logging.debug(f'PRODUCER - Consuming queue')
-                    while queue < config.QUEUE and len(self.work_list):
+                    logger.debug(f'PRODUCER - Consuming queue : {queue} | {len(self.work_list)}')
+                    while queue <= config.QUEUE and len(self.work_list):
                         work = self.work_list.popleft()
                         queue += 1
                         self.zmq_socket.send_json(json.dumps(work))
 
-                elif count == len(scraped) and queue == 0:
-                    logging.debug(f'PRODUCER - saving results and quitting')
+                elif count == len(scraped) and queue == 0 and count > 0:
+                    logger.info(f'PRODUCER - saving results and quitting')
                     self.masterPUSH.send_json(json.dumps({"name": "producer",
                                                      "state": "done"}))
-                    saveResult(emaildict, data.outputDir, printRes=True)
+                    self.saveResult(self.emaildict, self.data.outputDir)
                     break
 
 
@@ -427,11 +549,11 @@ class Producer(SetupZMQ):
                     self.interpretMaster()
 
             except Exception as e:
-                logging.critical(f'[{n}] PRODUCER - Big error, sending kill signal. Reason: {e}')
-                self.saveResult(self.emaildict, data.outputDir)
+                logger.exception(f'PRODUCER - Big error, sending kill signal. Reason: {e}')
+                self.saveResult(self.emaildict, self.data.outputDir)
                 self.health = False
 
-            self.gracefullyKill()
+        self.gracefullyKill()
 
     def creatWorkList(self, unscraped, scraped, oldsoup):
         while len(unscraped) and self.continueLoop:
@@ -457,13 +579,145 @@ class Producer(SetupZMQ):
         except Exception as e:
             logger.error(f'Could note save dfs: {e}')
 
+    def workYouBastard(self):
+        return self.emaildict
+
+class setParam():
+    def __init__(self, param):
+        # Format URL
+        self.urlsplit = urlsplit(param['url'])
+        self.url = f"{self.urlsplit.scheme}://{self.urlsplit.netloc}"
+        self.domains = param['domain']
+        self.folder = param['reference'].replace("-", "_")
+
+        # Set constats
+        self.workers = param['workers']
+        # Set limit
+        self.limit = param['limit']
+        self.port = 5000 + param['port']
+
+        # set Output
+        self.cwd = os.getcwd()
+        self.listdir = os.listdir(self.cwd)
+        self.outputDir = os.path.join(self.cwd, 'cache', self.folder)
+        if not os.path.exists(self.outputDir):
+            os.makedirs(self.outputDir)
 
 
+def processMaster(data):
+    master = Master(data)
+
+def processWorker(data):
+    worker = Workers(data)
+
+def processSink(data):
+    sink = Sink(data)
+
+def main(param):
+    data = setParam(param=param)
+    if __name__ == "__main__":
+        printParam(data)
+
+    file_handler_job = logging.FileHandler(os.path.join(data.outputDir, 'log'))
+    file_handler_job.setLevel(logging.INFO)
+    file_handler_job.setFormatter(formatter)
+    logger.addHandler(file_handler_job)
 
 
+    processes = []
+    p = Process(target=processMaster, args=(data,), name="MASTER")
+    p.start()
+    processes.append(p)
+    logger.info('[i] MASTER started')
+
+
+    for n in range(data.workers):
+        p = Process(target=processWorker, args=(data,), name="WORKER")
+        p.start()
+        processes.append(p)
+        logger.info(f'[i] WORKER {n+1}/{data.workers} started')
+
+    p = Process(target=processSink, args=(data,), name="SINK")
+    p.start()
+    processes.append(p)
+    logger.info(f'[i] Sink started')
+
+    emails = Producer(data).workYouBastard()
+
+    logger.info("[i] Finalising, \t")
+    for p in processes:
+        p.terminate()
+    logger.info('[i] Done')
+    return emails
+
+
+def welcome():
+    logo = f"""
+$$$$$$$$  $$$$   $$$$  $$$$   $$$$$$     $$$$$$$  $$$$  $$$$    $$$$$$    $$$$$
+$$$$$$$$$ $$$$   $$$$  $$$$  $$$$$$$$    $$$$$$$$ $$$$  $$$$  $$$$$$$$$  $$$$$$$
+$$$$ $$$$ $$$$   $$$$  $$$$ $$$$  $$$$   $$$$ $$$ $$$$  $$$$ $$$$       $$$$
+$$$$$$$$  $$$$   $$$$  $$$$ $$$$$$$$$$   $$$$$$$$ $$$$  $$$$ $$$$ $$$$$$ $$$$$$$
+$$$$ $$$$ $$$$   $$$$  $$$$ $$$$         $$$$$$$  $$$$  $$$$ $$$$  $$$$$     $$$$  $$
+$$$$$$$$$ $$$$$$$ $$$$$$$$   $$$$        $$$       $$$$$$$$  $$$$$$$$$$  $$$$$$$  $$$$
+$$$$$$$$  $$$$$$$  $$$$$$     $$$$$$     $$$        $$$$$$     $$$$$$$    $$$$$    $$
+
+                                                v{config.VERSION} guanicoe
+    """
+    print(logo)
+
+def printParam(parameters):
+    param = f"""
+###########################################################################
+
+    Base URL: {parameters.url}
+    Domains : {parameters.domains}
+    Number workers: {parameters.workers}
+    Limit set: {parameters.limit}
+    Output: {parameters.outputDir}
+
+###########################################################################
+    """
+
+    print(param)
 
 if __name__ == '__main__':
-    data = {"port" : 20, "workers": 2}
-    # worker = Workers(data)
-    # sink = Sink(data)
-    sink = Master(data)
+    welcome()
+
+    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser.add_argument('-u', '--url', type=str,
+                        required=True, help='Url to crawl')
+    parser.add_argument('-d', '--domain', nargs="+", default=False,
+                        help="""Domain name to keep in scope (ex: -d domain1,
+                                domain2). The first domain will be used as name
+                                for output. If not specified, the script will
+                                go outside the webite (will take a long time
+                                as it will basically scan the internet).
+                                The output name will be guessed from url."""
+                        )
+    parser.add_argument('-w', '--workers', type=int, default=10,
+                        help='Number of workers (default: 10)')
+    parser.add_argument('-l', '--limit', type=int, default=1000,
+                        help="""Limite the number of pages to crawl
+                                (default: 1000)"""
+                        )
+    parser.add_argument('-o', '--output-dir', type=str,
+                        help="""Specify which directory to save the date.
+                                (default is URL)"""
+                        )
+    parser.add_argument('--version', action='version',
+                        version=config.VERSION, help='Returns the version number')
+
+    args = parser.parse_args()
+
+
+    param = {
+                "url": args.url,
+                "domain": args.domain,
+                "reference": str(uuid.uuid4()),
+                "workers": args.workers,
+                "limit": args.limit,
+                "port": 0,
+            }
+
+    emails = main(param)
+    print(emails)
