@@ -52,8 +52,8 @@ $ python3 bluePugs.py -u https://domain.com -d domain
 
 #### Defaults
 
-- **WORKERS**: By default, the number of worker is set to **40**, modify this `-w` depending on you CPU power (more is not always better).
-- **LIMIT**: By default, there is a set of **5000** page limit to scan. This is a lot! But if the website has fewer accessible page, it will scan all. You can nevertheless specify no limits `-ul`.
+- **WORKERS**: By default, the number of worker is set to **10**, modify this `-w` depending on you CPU power (more is not always better).
+- **LIMIT**: By default, there is a set of **1000** page limit to scan. This is a lot! But if the website has fewer accessible page, it will scan all. You can nevertheless specify no limits `-ul`.
 - **OUTPUT DIRECTORY**: Two files are output. One with unique emails and a second with two columns: email, URL (with duplicates). The latter enables you to see where the email was found.
 
 
