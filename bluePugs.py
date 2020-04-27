@@ -271,7 +271,7 @@ class Workers(SetupZMQ):
                 link = path + link
 
             if not any(ext in link for ext in config.BLACKLIST['URLS']):
-                if all(inc in link for inc in include):
+                if any(inc in link for inc in include):
                     if link not in work['unscraped'] + work['scraped']:
                         links.append(link)
 
@@ -694,7 +694,7 @@ if __name__ == '__main__':
     parser.add_argument('-u', '--url', type=str,
                         required=True, help='Url to crawl')
     parser.add_argument('-d', '--domain', nargs="+", default=False,
-                        required=True, help="""Domain name to keep in scope (ex: -d domain1,
+                        required=True, help="""Domain name to keep in scope (ex: -d domain1 
                                 domain2). The first domain will be used as name
                                 for output. """
                         )

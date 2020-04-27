@@ -46,7 +46,7 @@ There are only two required flag `-u` which sets the target url, and `-d` which 
 
 ```
 #example
-$ python3 bluePugs.py -u https://domain.com -d domain
+$ python3 bluePugs.py -u https://domain.com -d domainA domainB
 ```
 
 
@@ -69,7 +69,7 @@ optional arguments:
   -h, --help            show this help message and exit
   -u URL, --url URL     Url to crawl
   -d DOMAIN [DOMAIN ...], --domain DOMAIN [DOMAIN ...]
-                        Domain name to keep in scope (ex: -d domain1, domain2). The first domain will be used as name for output.
+                        Domain name to keep in scope (ex: -d domain1 domain2). The first domain will be used as name for output.
   -w WORKERS, --workers WORKERS
                         Number of workers (default: 10)
   -l LIMIT, --limit LIMIT
