@@ -18,6 +18,10 @@ It is quite easy to use but is in early development stage. I don't know if it wi
 
 This script uses celery's billiard instead of the normal multiprocessing from python. It is there compatible with celery and can easily be integrated in a task by calling main() directly.
 
+## Known bugs
+
+Currently, breaking the script `ctrl+c` might end up with orphan processes. This is currently the major issue with this script.
+
 ## Installation
 
 #### Prerequisite
@@ -86,6 +90,8 @@ optional arguments:
 
 
 
+## License
+This work by <span rel="cc:attributionName">Guanicoe</span>CC BY 4.0[![](https://search.creativecommons.org/static/img/cc_icon.svg)![](https://search.creativecommons.org/static/img/cc-by_icon.svg)](https://creativecommons.org/licenses/by/4.0)
 
 
 G
