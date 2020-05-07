@@ -91,7 +91,7 @@ optional arguments:
 
 
 ## License
-This work by <span rel="cc:attributionName">Guanicoe</span>CC BY 4.0[![https://chooser-beta.creativecommons.org/img/cc_icon.104e8188.svg](https://creativecommons.org/licenses/by/4.0)[![(https://chooser-beta.creativecommons.org/img/cc-by_icon.9860ff24.svg)](https://creativecommons.org/licenses/by/4.0)]
+This work by <span rel="cc:attributionName">Guanicoe</span>CC BY 4.0![https://chooser-beta.creativecommons.org/img/cc_icon.104e8188.svg](https://creativecommons.org/licenses/by/4.0)![(https://chooser-beta.creativecommons.org/img/cc-by_icon.9860ff24.svg)](https://creativecommons.org/licenses/by/4.0)]
 
 
 G
