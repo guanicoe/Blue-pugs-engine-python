@@ -91,5 +91,5 @@ optional arguments:
 
 
 ## License
-<!-- <p xmlns:dct="http://purl.org/dc/terms/" xmlns:cc="http://creativecommons.org/ns#" class="license-text">This work  CC BY 4.0<a href="https://creativecommons.org/licenses/by/4.0"><img style="height:22px!important;margin-left: 3px;vertical-align:text-bottom;" src="https://chooser-beta.creativecommons.org/img/cc_icon.104e8188.svg" /><img  style="height:22px!important;margin-left: 3px;vertical-align:text-bottom;" src="https://chooser-beta.creativecommons.org/img/cc-by_icon.9860ff24.svg" /></a></p>
-G -->
+<p xmlns:dct="http://purl.org/dc/terms/" xmlns:cc="http://creativecommons.org/ns#" class="license-text">This work  CC BY 4.0<a href="https://creativecommons.org/licenses/by/4.0"><img style="height:22px!important;margin-left: 3px;vertical-align:text-bottom;" src="https://chooser-beta.creativecommons.org/img/cc_icon.104e8188.svg" /><img  style="height:22px!important;margin-left: 3px;vertical-align:text-bottom;" src="https://chooser-beta.creativecommons.org/img/cc-by_icon.9860ff24.svg" /></a></p>
+G
