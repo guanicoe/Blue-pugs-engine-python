@@ -1,0 +1,5 @@
+site_name: Blue Pugs enging documentation
+nav:
+    - Get started: index.md
+    - What's new and old: about.md
+theme: readthedocs

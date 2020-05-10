@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="None">
+  
+  
+  <link rel="shortcut icon" href="img/favicon.ico">
+  <title>Blue Pugs enging documentation</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Lato:400,700|Roboto+Slab:400,700|Inconsolata:400,700" />
+
+  <link rel="stylesheet" href="css/theme.css" />
+  <link rel="stylesheet" href="css/theme_extra.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css" />
+  
+  <script>
+    // Current page data
+    var mkdocs_page_name = "Get started";
+    var mkdocs_page_input_path = "index.md";
+    var mkdocs_page_url = null;
+  </script>
+  
+  <script src="js/jquery-2.1.1.min.js" defer></script>
+  <script src="js/modernizr-2.8.3.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+  <script>hljs.initHighlightingOnLoad();</script> 
+  
+</head>
+
+<body class="wy-body-for-nav" role="document">
+
+  <div class="wy-grid-for-nav">
+
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side stickynav">
+    <div class="wy-side-scroll">
+      <div class="wy-side-nav-search">
+        <a href="." class="icon icon-home"> Blue Pugs enging documentation</a>
+        <div role="search">
+  <form id ="rtd-search-form" class="wy-form" action="./search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" title="Type search term here" />
+  </form>
+</div>
+      </div>
+
+      <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+                <ul class="current">
+                    <li class="toctree-l1 current"><a class="reference internal current" href=".">Get started</a>
+    <ul class="current">
+    <li class="toctree-l2"><a class="reference internal" href="#introduction">Introduction</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#known-bugs">Known bugs</a>
+    </li>
+    <li class="toctree-l2"><a class="reference internal" href="#installation">Installation</a>
+        <ul>
+    <li class="toctree-l3"><a class="reference internal" href="#prerequisite">Prerequisite</a>
+    </li>
+        </ul>
+    </li>
+    </ul>
+                    </li>
+                </ul>
+                <ul>
+                    <li class="toctree-l1"><a class="reference internal" href="about/">What's new and old</a>
+                    </li>
+                </ul>
+      </div>
+    </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" role="navigation" aria-label="top navigation">
+        <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+        <a href=".">Blue Pugs enging documentation</a>
+      </nav>
+
+      
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="breadcrumbs navigation">
+  <ul class="wy-breadcrumbs">
+    <li><a href=".">Docs</a> &raquo;</li>
+    
+      
+    
+    <li>Get started</li>
+    <li class="wy-breadcrumbs-aside">
+      
+    </li>
+  </ul>
+  
+  <hr/>
+</div>
+          <div role="main">
+            <div class="section">
+              
+                <h1 id="welcome-to-blue-pugs-engine-documentation">Welcome to Blue Pugs. engine documentation</h1>
+<p>For full documentation visit <a href="https://www.mkdocs.org">mkdocs.org</a>.</p>
+<h2 id="introduction">Introduction</h2>
+<p>This small utility script was made to crawl websites for email addresses. It uses <strong>multiprocessing</strong> threads to get multiple workers to scrape the web pages, extract emails and links, and dumps them in a *.csv file.</p>
+<p>It is quite easy to use but is in early development stage. I don't know if it will be maintained. This will depend on whether it is a useful script or not.  The code may be considered as ugly, but it works (at least for me). So if you can make it better, go ahead.</p>
+<p>This script uses celery's billiard instead of the normal multiprocessing from python. It is there compatible with celery and can easily be integrated in a task by calling main() directly.</p>
+<p>Motivations for building this tool. </p>
+<ul>
+<li>theHarvester too slow for emails</li>
+<li>Fun exercise</li>
+</ul>
+<h2 id="known-bugs">Known bugs</h2>
+<p>Currently, breaking the script <code>ctrl+c</code> might end up with orphan processes. This is currently the major issue with this script.</p>
+<h2 id="installation">Installation</h2>
+<h4 id="prerequisite">Prerequisite</h4>
+<p>Everything you need to install is in the <code>requirements.txt</code> file. However, some noteworthy libraries are listed below</p>
+<pre><code>beautifulsoup4
+lxml
+pandas
+pyzmq
+celery
+</code></pre>
+
+<p>You just need to download the repository, and install the requirements.</p>
+<pre><code class="sh">git clone https://github.com/guanicoe/Blue-pugs-engine
+python3 -m pip install -r requirements.txt
+chmod +x bluePugs.py
+
+## Usage
+
+There are only two required flag `-u` which sets the target url, and `-d` which is a list of domains to limit the search to.
+
+</code></pre>
+
+<h1 id="example">example</h1>
+<p>$ python3 bluePugs.py -u https://domain.com -d domainA domainB</p>
+<pre><code>
+
+#### Defaults
+
+- **WORKERS**: By default, the number of worker is set to **10**, modify this `-w` depending on you CPU power (more is not always better).
+- **LIMIT**: By default, there is a set of **1000** page limit to scan. This is a lot! But if the website has fewer accessible page, it will scan all. You can nevertheless specify no limits `-ul`.
+- **OUTPUT DIRECTORY**: Two files are output. One with unique emails and a second with two columns: email, URL (with duplicates). The latter enables you to see where the email was found.
+
+
+
+
+```sh
+usage: bluePugs.py [-h] -u URL -d DOMAIN [DOMAIN ...] [-w WORKERS] [-l LIMIT] [-o OUTPUT_DIR] [--version]
+
+This small utility script was made to crawl websites for email addresses. It uses multiprocessing threads to get multiple workers to scrape the web pages,
+extract emails and links, and dumps them in a *.csv file.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -u URL, --url URL     Url to crawl
+  -d DOMAIN [DOMAIN ...], --domain DOMAIN [DOMAIN ...]
+                        Domain name to keep in scope (ex: -d domain1 domain2). The first domain will be used as name for output.
+  -w WORKERS, --workers WORKERS
+                        Number of workers (default: 10)
+  -l LIMIT, --limit LIMIT
+                        Limite the number of pages to crawl (default: 1000)
+  -o OUTPUT_DIR, --output-dir OUTPUT_DIR
+                        Specify which directory to save the date. (default is URL)
+  --version             Returns the version number
+
+</code></pre>
+
+<h2 id="to-do">TO-DO</h2>
+<ul>
+<li>finish README :)</li>
+</ul>
+<h2 id="license">License</h2>
+<p><p xmlns:dct="http://purl.org/dc/terms/" xmlns:cc="http://creativecommons.org/ns#" class="license-text">This work  CC BY 4.0<a href="https://creativecommons.org/licenses/by/4.0"><img style="height:22px!important;margin-left: 3px;vertical-align:text-bottom;" src="https://chooser-beta.creativecommons.org/img/cc_icon.104e8188.svg" /><img  style="height:22px!important;margin-left: 3px;vertical-align:text-bottom;" src="https://chooser-beta.creativecommons.org/img/cc-by_icon.9860ff24.svg" /></a></p>
+G</p>
+              
+            </div>
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="about/" class="btn btn-neutral float-right" title="What's new and old">Next <span class="icon icon-circle-arrow-right"></span></a>
+      
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <!-- Copyright etc -->
+    
+  </div>
+
+  Built with <a href="https://www.mkdocs.org/">MkDocs</a> using a <a href="https://github.com/snide/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>.
+</footer>
+      
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <div class="rst-versions" role="note" aria-label="versions">
+    <span class="rst-current-version" data-toggle="rst-current-version">
+      
+      
+      
+        <span style="margin-left: 15px"><a href="about/" style="color: #fcfcfc">Next &raquo;</a></span>
+      
+    </span>
+</div>
+    <script>var base_url = '.';</script>
+    <script src="js/theme.js" defer></script>
+      <script src="search/main.js" defer></script>
+    <script defer>
+        window.onload = function () {
+            SphinxRtdTheme.Navigation.enable(true);
+        };
+    </script>
+
+</body>
+</html>
+
+<!--
+MkDocs version : 1.1
+Build Date UTC : 2020-05-10 19:23:48
+-->
