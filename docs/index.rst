@@ -10,7 +10,12 @@ Welcome to Blue Pugs Engine's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+ Installation
+ ------------
 
+ Install $project by running:
+
+     install project
 
 Indices and tables
 ==================
