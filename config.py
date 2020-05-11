@@ -5,5 +5,8 @@ BLACKLIST = {
                 "URLS": ["whatsapp", "github", "bing", "facebook", "twitter", "flicker", "youtu", "google", "flickr", "commailto", "pinterest", "linkedin", "zencart", "wufoo", "youcanbook", "instagram"],
             }
 QUEUE = 100
-TIMEOUT_CONSTANT = 30e3
+TIMEOUT_CONSTANT = 40e3
 VERSION = 0.3
+LOG_DIRECTORY = "bluepugs/engine"
+
+LOG_LEVEL = "INFO"

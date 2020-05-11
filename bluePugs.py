@@ -20,8 +20,14 @@ import time
 import os
 import re
 import uuid
+import signal
 #Custom modules
-import config
+if __name__ == "__main__":
+    import config
+    logpath = 'bluePugs.log'
+else:
+    import bluepugs.engine.config as config
+    logpath = os.path.join(config.LOG_DIRECTORY, 'bluePugs.log')
 import logging
 
 # DEBUG: Detailed information, typically of interest only when diagnosing problems.
@@ -34,22 +40,32 @@ import logging
 
 # CRITICAL: A serious error, indicating that the program itself may be unable to continue running.
 
+logLevel = {"DEBUG": logging.DEBUG,
+            "INFO": logging.INFO,
+            "WARNING": logging.WARNING,
+            "ERROR": logging.ERROR,
+            "CRITICAL": logging.CRITICAL}
+
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logLevel[config.LOG_LEVEL])
 
 formatter = logging.Formatter('%(asctime)s - %(levelname)s:%(module)s:%(name)s:%(funcName)s --- %(message)s --- [%(lineno)d]')
 
-file_handler = logging.FileHandler('bluePugs.log')
-file_handler.setLevel(logging.WARNING)
+file_handler = logging.FileHandler(logpath)
+file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(formatter)
 
 
 stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.INFO)
+stream_handler.setLevel(logging.DEBUG)
 stream_handler.setFormatter(formatter)
 
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
+
+global KILLING
+
+
 
 
 class SetupZMQ():
@@ -129,19 +145,19 @@ class SetupZMQ():
     def gracefullyKill(self, tellMaster = True):
         if tellMaster:
             self.sendToMaster("quit")
-        logger.critical(f"Killing process: {self.who}")
+        logger.warning(f"Killing process: {self.who}")
         # self.masterPUSH.close()
         # self.masterSUB.close()
         # self.work_receiver.close()
         # self.consumer_sender.close()
         # self.context.term()
         self.context.destroy(linger=0)
-        logger.critical(f"Process: {self.who} killed!")
+        logger.warning(f"Process: {self.who} killed!")
 
     def interpretMaster(self):
         recv = self.masterSUB.recv_string()
         if recv.split(' ')[1] == 'kill':
-            logger.critical('Closing service, received kill signal from masterSUB')
+            logger.warning('Closing service, received kill signal from masterSUB')
             self.health = False
         else:
             logger.error(f'Received unknown message from masterSUB: {recv}')
@@ -153,6 +169,20 @@ class SetupZMQ():
             logger.critical(f"The {self.who}'s poller socket has timedout {self.fails} times in a row and is being killed.")
             self.health = False
 
+class KillSwitch(SetupZMQ):
+    def __init__(self, data):
+        self.who = "ks"
+        self.port = data.port
+        try:
+            self.connectZMQ()
+        except Exception as e:
+            logger.exception(f"Failed to initialise ZMQ: {e}.")
+            self.health = False
+            self.gracefullyKill()
+
+    def __call__(self):
+        print("SENDING KILL SIGNAL")
+        self.gracefullyKill()
 
 class Workers(SetupZMQ):
     def __init__(self, data):
@@ -169,6 +199,7 @@ class Workers(SetupZMQ):
         except Exception as e:
             logger.exception(f"Failed to initialise ZMQ: {e}.")
             self.health = False
+            self.gracefullyKill()
 
         if self.health:
             self.sendToMaster("start")
@@ -193,14 +224,7 @@ class Workers(SetupZMQ):
             return decorated
         return decorator
 
-    def cleanurl(self, url):
-        parts = urlsplit(url)
-        base_url = "{0.scheme}://{0.netloc}".format(parts)
-        if '/' in parts.path:
-            path = url[:url.rfind('/')+1]
-        else:
-            path = url
-        return parts, base_url, path
+
 
     @timeout(30)
     def creatSoup(self, work, timeout_data={ "state": False,
@@ -230,9 +254,17 @@ class Workers(SetupZMQ):
         except Exception as e:
             output = {"state": False, "content_type": None,
                       "response": None, "oldsoup": oldsoup, "error": str(e)}
-            logger.exception(f"Exception hit: {e}")
+            logger.warning(f"Exception hit on url: {url} - error reads: {e}")
         return output
 
+    def cleanurl(self, url):
+        parts = urlsplit(url)
+        base_url = "{0.scheme}://{0.netloc}/".format(parts)
+        if '/' in parts.path:
+            path = url[:url.rfind('/')+1]
+        else:
+            path = url
+        return parts, base_url, path
 
     @timeout(30)
     def readhtml(self, response, work, timeout_data=[[], []]):
@@ -241,7 +273,6 @@ class Workers(SetupZMQ):
                        "]", "'", "domain.com", 'email.com']
         new_emails = set(re.findall(config.RGX, response.text, re.I))
         falsepos = set()
-
         for email in new_emails:
             falsepos.update([email for e in excludeCHAR if e in email])
         new_emails -= falsepos
@@ -266,8 +297,10 @@ class Workers(SetupZMQ):
                 link = "http://"+link
             if link.startswith('/'):
                 link = base_url + link
+            else:
+                link = base_url + "/" + link
 
-            elif not link.startswith('http'):
+            if not link.startswith('http'):
                 link = path + link
 
             if not any(ext in link for ext in config.BLACKLIST['URLS']):
@@ -280,7 +313,7 @@ class Workers(SetupZMQ):
     def mainLoop(self):
         while self.health:
 
-            socks = dict(self.poller.poll(config.TIMEOUT_CONSTANT/2))
+            socks = dict(self.poller.poll(config.TIMEOUT_CONSTANT))
             if socks.get(self.work_receiver) == zmq.POLLIN:
                 work = json.loads(self.work_receiver.recv_json())
                 output = {
@@ -293,9 +326,11 @@ class Workers(SetupZMQ):
                         }
                 try:
                     extension = work['url'].split('.')[-1].lower()
-                    if extension not in config.BLACKLIST['EXTENSIONS']:
+                    if extension not in config.BLACKLIST['EXTENSIONS'] :
                         data = self.creatSoup(work)
-                        if data['state']:
+                        if data is None:
+                            output['error'] = "data is none, error in creatSoup"
+                        elif data['state']:
                             linksSet, emailsSet = self.readhtml(data['response'], work)
                             output = {
                                         "initUrl": work['url'],
@@ -309,7 +344,7 @@ class Workers(SetupZMQ):
                             output['error'] = data['error']
                 except Exception as e:
                      output['error'] = True
-                     logger.exception(f'Exception hit when undertaking job {e}. Work: {work}')
+                     logger.exception(f'Exception hit when undertaking job {e}. Work: {data}')
                 self.consumer_sender.send_json(json.dumps(output))
 
             elif socks.get(self.masterSUB) == zmq.POLLIN:
@@ -356,6 +391,7 @@ class Sink(SetupZMQ):
         except Exception as e:
             logger.exception(f"Failed to initialise ZMQ: {e}.")
             self.health = False
+            self.gracefullyKill()
 
         if self.health:
             self.sendToMaster("start")
@@ -442,16 +478,20 @@ class Master(SetupZMQ):
             if socks.get(self.masterPULL) == zmq.POLLIN:
                 recv = json.loads(self.masterPULL.recv_json())
                 if recv == {'name': 'producer', 'state': 'quit'}:
-                    logger.critical(f"[i] MASTER - received quit message from {recv['name']}")
+                    logger.warning(f"[i] MASTER - received quit message from {recv['name']}")
                     self.pubKillSockets(['worker', 'sink'])
                     break
                 elif recv == {'name': 'worker', 'state': 'quit'}:
-                    logger.critical(f"[i] MASTER - received quit message from {recv['name']}")
+                    logger.warning(f"[i] MASTER - received quit message from {recv['name']}")
                     self.pubKillSockets(['producer', 'worker', 'sink'])
                     break
                 elif recv == {'name': 'sink', 'state': 'quit'}:
-                    logger.critical(f"[i] MASTER - received quit message from {recv['name']}")
+                    logger.warning(f"[i] MASTER - received quit message from {recv['name']}")
                     self.pubKillSockets(['producer', 'worker'])
+                    break
+                elif recv == {'name': 'ks', 'state': 'quit'}:
+                    logger.warning(f"[i] MASTER - received quit message from {recv['name']}")
+                    self.pubKillSockets(['producer', 'worker', 'sink'])
                     break
                 else:
                     logger.error(f"[?] MASTER - poller triggered but not understood: {recv}")
@@ -463,6 +503,10 @@ class Master(SetupZMQ):
 
 class Producer(SetupZMQ):
     def __init__(self, data):
+
+        self.called = False
+
+
         self.fails = 0
         self.who = "producer"
         self.data = data
@@ -470,6 +514,7 @@ class Producer(SetupZMQ):
         self.work_list = deque([])
         self.emaildict = []
         self.continueLoop = True
+        self.scrapedLength = 0
 
         try:
             self.connectZMQ()
@@ -478,6 +523,7 @@ class Producer(SetupZMQ):
         except Exception as e:
             logger.exception(f"Failed to initialise ZMQ: {e}.")
             self.health = False
+            self.gracefullyKill()
 
         if self.health:
 
@@ -500,8 +546,6 @@ class Producer(SetupZMQ):
         #         self.masterSUB.recv_string()
         #     else:
         #         self.countFails()
-
-
     def mainLoop(self):
         logger.info('[i] PRODUCER - starting main loop')
         unscraped = deque([self.data.url])
@@ -509,13 +553,14 @@ class Producer(SetupZMQ):
         oldsoup = set()
         queue = 0
         count = 0
-
         while self.health and self.continueLoop:
             try:
                 self.creatWorkList(unscraped, scraped, oldsoup)
 
                 socks = dict(self.poller.poll(100))
-                if socks.get(self.get_sink) == zmq.POLLIN:
+                if socks.get(self.masterSUB) == zmq.POLLIN:
+                    self.interpretMaster()
+                elif socks.get(self.get_sink) == zmq.POLLIN:
                     logger.debug("Receiving data from sink")
                     sink = json.loads(self.get_sink.recv_json())
                     queue -= 1
@@ -545,8 +590,7 @@ class Producer(SetupZMQ):
                     break
 
 
-                elif socks.get(self.masterSUB) == zmq.POLLIN:
-                    self.interpretMaster()
+
 
             except Exception as e:
                 logger.exception(f'PRODUCER - Big error, sending kill signal. Reason: {e}')
@@ -569,6 +613,7 @@ class Producer(SetupZMQ):
                     'unscraped': list(unscraped)
                     }
             self.work_list.append(work)
+            self.scrapedLength = len(scraped)
 
 
     def saveResult(self, dict, dir):
@@ -580,7 +625,7 @@ class Producer(SetupZMQ):
             logger.error(f'Could note save dfs: {e}')
 
     def workYouBastard(self):
-        return self.emaildict
+        return self.emaildict, self.scrapedLength
 
 class setParam():
     def __init__(self, param):
@@ -602,7 +647,7 @@ class setParam():
         # set Output
         self.cwd = os.getcwd()
         self.listdir = os.listdir(self.cwd)
-        self.outputDir = os.path.join(self.cwd, 'cache', self.folder)
+        self.outputDir = os.path.join(self.cwd, 'engine/cache', self.folder)
         if not os.path.exists(self.outputDir):
             os.makedirs(self.outputDir)
 
@@ -616,15 +661,23 @@ def processWorker(data):
 def processSink(data):
     sink = Sink(data)
 
+
 def main(param):
+    KILLING = False
+
+
+    KILLING2 = False
+    original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
     data = setParam(param=param)
     if __name__ == "__main__":
         printParam(data)
 
-    file_handler_job = logging.FileHandler(os.path.join(data.outputDir, 'log'))
-    file_handler_job.setLevel(logging.INFO)
-    file_handler_job.setFormatter(formatter)
-    logger.addHandler(file_handler_job)
+    logger.critical(f"######################### NEW JOB: {data.folder} #########################")
+
+    # file_handler_job = logging.FileHandler(os.path.join(data.outputDir, 'log'))
+    # file_handler_job.setLevel(logging.INFO)
+    # file_handler_job.setFormatter(formatter)
+    # logger.addHandler(file_handler_job)
 
 
     processes = []
@@ -644,14 +697,23 @@ def main(param):
     p.start()
     processes.append(p)
     logger.info(f'[i] Sink started')
+    ksObj = KillSwitch(data)
 
-    emails = Producer(data).workYouBastard()
+    def killswitch(a,b ):
+        ksObj()
+        ksObj()
+
+    signal.signal(signal.SIGINT, killswitch)
+    emails, nmbPgsScraped = Producer(data).workYouBastard()
+
+
 
     logger.info("[i] Finalising, \t")
     for p in processes:
         p.terminate()
     logger.info('[i] Done')
-    return emails
+
+    return emails, nmbPgsScraped
 
 
 def welcome():
@@ -694,7 +756,7 @@ if __name__ == '__main__':
     parser.add_argument('-u', '--url', type=str,
                         required=True, help='Url to crawl')
     parser.add_argument('-d', '--domain', nargs="+", default=False,
-                        required=True, help="""Domain name to keep in scope (ex: -d domain1 
+                        required=True, help="""Domain name to keep in scope (ex: -d domain1,
                                 domain2). The first domain will be used as name
                                 for output. """
                         )
